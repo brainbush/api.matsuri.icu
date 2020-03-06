@@ -50,14 +50,29 @@ router.get('/:mid/clips/:kind', async (req, res) => {
             {
                 projection: {
                     _id: 0,
-                    id: 1,
-                    bilibili_uid: 1,
-                    start_time: 1,
-                    end_time: 1,
-                    title: 1,
-                    live: 1,
-                    cover: 1,
-                    total_danmu: 1,
+                    full_comments: 0,
+                    highlights: 0
+                }
+            }
+        ).sort({start_time: -1}).toArray();
+    } finally {
+        res.send({status: status, data: list})
+    }
+
+});
+
+router.get('/:mid/clips', async (req, res) => {
+    let status = 0;
+    let mid = parseInt(req.params.mid);
+    let list;
+    try {
+        const db = req.app.locals.db;
+        list = await db.collection('clip').find({bilibili_uid: mid},
+            {
+                projection: {
+                    _id: 0,
+                    full_comments: 0,
+                    highlights: 0
                 }
             }
         ).sort({start_time: -1}).toArray();

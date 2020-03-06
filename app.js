@@ -29,5 +29,6 @@ app.use('/channel', channelRouter);
 app.use('/clip', clipRouter);
 app.use('/spider', spiderRouter);
 app.use('/viewer', viewerRouter);
+app.use('/off_comments',offCommentsRouter);
 
 module.exports = app;

@@ -95,19 +95,91 @@ router.post('/add_channel', async (req, res) => {
         return;
     }
     let data = req.body.data;
-    data.forEach(NewChannel => {
-        db.collection('channel').insertOne({
-            name: NewChannel.name,
-            bilibili_uid: NewChannel.bilibili_uid,
-            bilibili_live_room: NewChannel.bilibili_live_room,
-            is_live: false,
-            last_live: null,
-            last_danmu: 0,
-            total_clips: 0,
-            total_danmu: 0,
-            face: NewChannel.face
-        })
-    })
+    for (let NewChannel of data) {
+        let channel_count = await db.collection('channel').countDocuments({bilibili_uid: NewChannel.bilibili_uid});
+        if (channel_count === 0) {
+            db.collection('channel').insertOne({
+                name: NewChannel.name,
+                bilibili_uid: NewChannel.bilibili_uid,
+                bilibili_live_room: NewChannel.bilibili_live_room,
+                is_live: false,
+                last_live: null,
+                last_danmu: 0,
+                total_clips: 0,
+                total_danmu: 0,
+                face: NewChannel.face
+            })
+        } else {
+            console.log(NewChannel.name + ' existed!');
+        }
+    }
+    res.send({status: 0})
 });
+
+
+router.post('/upload_offline_comments', async (req, res) => {
+    let status = 0;
+    try {
+        const db = req.app.locals.db;
+        const Authorization = req.headers.authorization;
+        if (process.env.Authorization !== Authorization) {
+            res.status(403);
+            res.send({status: 1});
+            return;
+        }
+        let room_id = undefined;
+        let comments = [];
+        let data = req.body;
+        if (data.hasOwnProperty('room_id')) room_id = data.room_id;
+        if (data.hasOwnProperty('comments')) comments = data.comments;
+        let channel_info = await db.collection('channel').findOne({bilibili_live_room: room_id});
+        let uid = channel_info.bilibili_uid;
+        let comments_by_date = {};
+        //按日期区分
+        comments.forEach(comment => {
+            let date = formatDate(comment.time);
+            if (!comments_by_date.hasOwnProperty(date))
+                comments_by_date[date] = [];
+            comments_by_date[date].push(comment);
+        });
+        for (let comment_date in comments_by_date) {
+            let name = uid.toString() + '_' + comment_date;
+            let comment_in_that_date = await db.collection('off_comments').countDocuments({name: name});
+            if (comment_in_that_date === 0) {
+                //如果不存在，则直接添加
+                await db.collection('off_comments').insertOne({name: name, comments: comments_by_date[comment_date]})
+            } else {
+                //否则插入到后面
+                await db.collection('off_comments').updateOne({name: name}, {
+                    $push: {
+                        comments: {$each: comments_by_date[comment_date]}
+                    }
+                })
+            }
+        }
+    } catch (e) {
+        console.error(e);
+        res.status(500);
+        status = 1;
+        res.send({status: status});
+    } finally {
+        if (status === 0) {
+            res.send({status: 0})
+        }
+    }
+});
+
+function formatDate(date) {
+    let d = new Date(date),
+        month = '' + (d.getMonth() + 1),
+        day = '' + d.getDate(),
+        year = d.getFullYear();
+
+    if (month.length < 2)
+        month = '0' + month;
+    if (day.length < 2)
+        day = '0' + day;
+    return year + month + day
+}
 
 module.exports = router;
