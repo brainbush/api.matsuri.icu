@@ -6,11 +6,13 @@
     "start": "node ./bin/www"
   },
   "dependencies": {
+    "async-redis": "^1.1.7",
     "cors": "^2.8.5",
     "debug": "~2.6.9",
     "express": "~4.16.1",
     "hashids": "^2.1.0",
     "mongodb": "^3.5.2",
-    "morgan": "~1.9.1"
+    "morgan": "~1.9.1",
+    "redis": "^3.0.2"
   }
 }

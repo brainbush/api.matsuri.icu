@@ -31,55 +31,33 @@ router.get('/:mid', async (req, res) => {
 });
 
 //单个频道所有clip
-router.get('/:mid/clips/:kind', async (req, res) => {
-    let status = 0;
-    let mid = parseInt(req.params.mid);
-    let kind = req.params.kind;
-    let list;
-    try {
-        let q;
-        const db = req.app.locals.db;
-        if (kind === 'all') {
-            q = {bilibili_uid: mid};
-        } else if (kind === 'online') {
-            q = {bilibili_uid: mid, live: true};
-        } else {
-            q = {bilibili_uid: mid, live: false};
-        }
-        list = await db.collection('clip').find(q,
-            {
-                projection: {
-                    _id: 0,
-                    full_comments: 0,
-                    highlights: 0
-                }
-            }
-        ).sort({start_time: -1}).toArray();
-    } finally {
-        res.send({status: status, data: list})
-    }
-
-});
-
 router.get('/:mid/clips', async (req, res) => {
     let status = 0;
     let mid = parseInt(req.params.mid);
-    let list;
+    let list = null;
     try {
-        const db = req.app.locals.db;
-        list = await db.collection('clip').find({bilibili_uid: mid},
-            {
-                projection: {
-                    _id: 0,
-                    full_comments: 0,
-                    highlights: 0
+        const redis_client = req.app.locals.redis_client;
+        let r = await redis_client.get('channel_' + mid);
+        if (r) list = JSON.parse(r);
+        if (list === null) {
+            const db = req.app.locals.db;
+            list = await db.collection('clip').find({bilibili_uid: mid},
+                {
+                    projection: {
+                        _id: 0,
+                        full_comments: 0,
+                        highlights: 0
+                    }
                 }
+            ).sort({start_time: -1}).toArray();
+            if (list.length > 0) {
+                redis_client.set('channel_' + mid.toString(), JSON.stringify(list))
             }
-        ).sort({start_time: -1}).toArray();
+
+        }
     } finally {
         res.send({status: status, data: list})
     }
-
 });
 
 module.exports = router;

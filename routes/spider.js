@@ -41,7 +41,17 @@ router.post('/start_clip', async (req, res) => {
         live: live,
         cover: cover
     });
-    res.send({id: id})
+    res.send({id: id});
+    let list = await db.collection('clip').find({bilibili_uid: bilibili_uid},
+        {
+            projection: {
+                _id: 0,
+                full_comments: 0,
+                highlights: 0
+            }
+        }
+    ).sort({start_time: -1}).toArray();
+    req.app.locals.redis_client.set('channel_' + bilibili_uid.toString(), JSON.stringify(list))
 });
 
 router.post('/end_clip', async (req, res) => {
@@ -67,7 +77,17 @@ router.post('/end_clip', async (req, res) => {
             $set: {is_live: false, last_danmu: total_danmu},
             $inc: {total_danmu: total_danmu}
         });
-    res.send({status: 0})
+    res.send({status: 0});
+    let list = await db.collection('clip').find({bilibili_uid: bilibili_uid},
+        {
+            projection: {
+                _id: 0,
+                full_comments: 0,
+                highlights: 0
+            }
+        }
+    ).sort({start_time: -1}).toArray();
+    req.app.locals.redis_client.set('channel_' + bilibili_uid.toString(), JSON.stringify(list))
 });
 
 router.post('/channel_info_update', async (req, res) => {
