@@ -63,14 +63,49 @@ router.post('/end_clip', async (req, res) => {
         return;
     }
     let data = req.body;
-    let id, end_time, total_danmu, highlights, full_comments;
+    let id, end_time, total_danmu, highlights, full_comments, danmu_density, start_time;
     if (data.hasOwnProperty('id')) id = data.id;
     if (data.hasOwnProperty('end_time')) end_time = data.end_time;
     if (data.hasOwnProperty('total_danmu')) total_danmu = data.total_danmu;
     if (data.hasOwnProperty('highlights')) highlights = data.highlights;
     if (data.hasOwnProperty('full_comments')) full_comments = data.full_comments;
+    let info = await db.collection('clip').findOne({id: id});
+    start_time = info.start_time;
+    let total_gift = 0;
+    let total_superchat = 0;
+    let total_reward = 0;
+    for (let comment of full_comments) {
+        if (comment.hasOwnProperty('gift_price')) {
+            total_gift += comment.gift_price;
+            total_reward += comment.gift_price
+        }
+        if (comment.hasOwnProperty('superchat_price')) {
+            total_superchat += comment.superchat_price;
+            total_reward += comment.superchat_price
+        }
+    }
+    total_reward = Math.floor(total_reward * 1000) / 1000;
+    total_gift = Math.floor(total_gift * 1000) / 1000;
+    if (total_danmu !== 0) {
+        danmu_density = Math.round(total_danmu / ((end_time - start_time) / 60000));
+    } else {
+        danmu_density = 0;
+    }
+
+
     let clip_info = await db.collection('clip').findOneAndUpdate({id: id},
-        {$set: {end_time: end_time, total_danmu: total_danmu, highlights: highlights, full_comments: full_comments}});
+        {
+            $set: {
+                end_time: end_time,
+                total_danmu: total_danmu,
+                highlights: highlights,
+                full_comments: full_comments,
+                total_gift: total_gift,
+                total_superchat: total_superchat,
+                total_reward: total_reward,
+                danmu_density: danmu_density
+            }
+        });
     let bilibili_uid = clip_info.value.bilibili_uid;
     db.collection('channel').findOneAndUpdate({bilibili_uid: bilibili_uid},
         {
@@ -101,7 +136,7 @@ router.post('/channel_info_update', async (req, res) => {
     let data = req.body.data;
     data.forEach(channel => {
         db.collection('channel').findOneAndUpdate({bilibili_uid: channel.bilibili_uid},
-            {$set: {name: channel.name, face: channel.face}})
+            {$set: {name: channel.name, face: channel.face, bilibili_live_room: channel.bilibili_live_room}})
     });
     res.send({status: 0})
 });
@@ -135,7 +170,6 @@ router.post('/add_channel', async (req, res) => {
     }
     res.send({status: 0})
 });
-
 
 router.post('/upload_offline_comments', async (req, res) => {
     let status = 0;

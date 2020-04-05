@@ -23,7 +23,7 @@ MongoClient.connect(mongo_url, mongo_options, (err, client) => {
 );
 app.locals.redis_client = redis.createClient();
 
-app.use(logger('dev'));
+app.use(logger('common'));
 app.use(express.json({limit: '500mb'}));
 app.use(express.urlencoded({extended: false}));
 
