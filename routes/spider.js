@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const cors = require('cors');
 const Hashids = require('hashids/cjs');
+const https = require('https');
 
 const hashids = new Hashids();
 
@@ -50,7 +51,8 @@ router.post('/start_clip', async (req, res) => {
                 highlights: 0
             }
         }
-    ).sort({start_time: -1}).toArray();
+    ).toArray();
+    list = list.reverse()
     req.app.locals.redis_client.set('channel_' + bilibili_uid.toString(), JSON.stringify(list))
 });
 
@@ -121,7 +123,8 @@ router.post('/end_clip', async (req, res) => {
                 highlights: 0
             }
         }
-    ).sort({start_time: -1}).toArray();
+    ).toArray();
+    list = list.reverse()
     req.app.locals.redis_client.set('channel_' + bilibili_uid.toString(), JSON.stringify(list))
 });
 
@@ -140,6 +143,43 @@ router.post('/channel_info_update', async (req, res) => {
     });
     res.send({status: 0})
 });
+let obj;
+router.get('/channel_info_update_new', async (req, res) => {
+    const Authorization = req.headers.authorization;
+    if (process.env.Authorization !== Authorization) {
+        res.status(403);
+        res.send({status: 1});
+        return;
+    }
+    const db = req.app.locals.db;
+    let none_list = []
+    await https.get('https://api.vtbs.moe/v1/info', response => {
+        let output = '';
+        response.on('data', (chunk) => {
+            output += chunk;
+        })
+        response.on('end', async () => {
+            obj = JSON.parse(output);
+            await db.collection('channel').find().forEach(channel => {
+                let bilibili_uid = channel.bilibili_uid;
+                let new_info = obj.filter(x => x.mid === bilibili_uid)[0]
+                if (new_info) {
+                    let uname = new_info.uname
+                    let roomid = new_info.roomid
+                    let face = new_info.face;
+                    face = face.replace('http', 'https')
+                    db.collection('channel').findOneAndUpdate({bilibili_uid: bilibili_uid},
+                        {$set: {name: uname, face: face, bilibili_live_room: roomid}})
+                } else {
+                    //console.log('no such info in this obj:' + bilibili_uid.toString())
+                    none_list.push(bilibili_uid)
+                }
+            })
+            console.log(none_list)
+            res.send(none_list)
+        })
+    })
+})
 
 router.post('/add_channel', async (req, res) => {
     const db = req.app.locals.db;

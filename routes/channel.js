@@ -49,7 +49,8 @@ router.get('/:mid/clips', async (req, res) => {
                         highlights: 0
                     }
                 }
-            ).sort({start_time: -1}).toArray();
+            ).toArray();
+            list = list.reverse()
             if (list.length > 0) {
                 redis_client.set('channel_' + mid.toString(), JSON.stringify(list))
             }
