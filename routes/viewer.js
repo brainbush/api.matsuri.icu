@@ -27,11 +27,9 @@ router.get('/:mid', async (req, res) => {
     let final_list = null;
     try {
         const redis_client = req.app.locals.redis_client;
-
         let r = await redis_client.get('viewer_' + mid);
         if (r) final_list = JSON.parse(r);
         if (final_list === null) {
-
             final_list = []
             const db = req.app.locals.db;
             comments = await db.collection('clip').aggregate(
@@ -48,10 +46,12 @@ router.get('/:mid', async (req, res) => {
                     projection: {_id: 0, full_comments: 0, highlights: 0}
                 });
                 let channel_info = await db.collection('channel').findOne({bilibili_uid: clip_info.bilibili_uid}, {projection: {name: 1}});
-                k.clip_info = clip_info;
-                k.clip_info.name = channel_info.name;
-                k.full_comments = clip.full_comments.sort(time_compare);
-                final_list.push(k)
+                if (channel_info) {
+                    k.clip_info = clip_info;
+                    k.clip_info.name = channel_info.name;
+                    k.full_comments = clip.full_comments.sort(time_compare);
+                    final_list.push(k)
+                }
             }
             final_list.sort(start_time_compare)
             if (final_list.length > 0) {
