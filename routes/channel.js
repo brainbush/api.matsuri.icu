@@ -54,7 +54,6 @@ router.get('/:mid/clips', async (req, res) => {
             if (list.length > 0) {
                 redis_client.set('channel_' + mid.toString(), JSON.stringify(list))
             }
-
         }
     } finally {
         res.send({status: status, data: list})

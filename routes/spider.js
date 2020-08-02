@@ -29,12 +29,12 @@ router.post('/start_clip', async (req, res) => {
         channel_set = {is_live: false};
     }
     let id = hashids.encode(bilibili_uid, start_time);
-    db.collection('channel').findOneAndUpdate({bilibili_uid: bilibili_uid},
+    await db.collection('channel').findOneAndUpdate({bilibili_uid: bilibili_uid},
         {
             $set: channel_set,
             $inc: {total_clips: 1}
         });
-    db.collection('clip').insertOne({
+    await db.collection('clip').insertOne({
         id: id,
         bilibili_uid: bilibili_uid,
         start_time: start_time,
@@ -65,12 +65,13 @@ router.post('/end_clip', async (req, res) => {
         return;
     }
     let data = req.body;
-    let id, end_time, total_danmu, highlights, full_comments, danmu_density, start_time;
+    let id, end_time, total_danmu, highlights, full_comments, danmu_density, start_time, views = 0;
     if (data.hasOwnProperty('id')) id = data.id;
     if (data.hasOwnProperty('end_time')) end_time = data.end_time;
     if (data.hasOwnProperty('total_danmu')) total_danmu = data.total_danmu;
     if (data.hasOwnProperty('highlights')) highlights = data.highlights;
     if (data.hasOwnProperty('full_comments')) full_comments = data.full_comments;
+    if (data.hasOwnProperty('views')) views = data.views;
     let info = await db.collection('clip').findOne({id: id});
     start_time = info.start_time;
     let total_gift = 0;
@@ -105,11 +106,12 @@ router.post('/end_clip', async (req, res) => {
                 total_gift: total_gift,
                 total_superchat: total_superchat,
                 total_reward: total_reward,
-                danmu_density: danmu_density
+                danmu_density: danmu_density,
+                views: views
             }
         });
     let bilibili_uid = clip_info.value.bilibili_uid;
-    db.collection('channel').findOneAndUpdate({bilibili_uid: bilibili_uid},
+    await db.collection('channel').findOneAndUpdate({bilibili_uid: bilibili_uid},
         {
             $set: {is_live: false, last_danmu: total_danmu},
             $inc: {total_danmu: total_danmu}
@@ -175,7 +177,6 @@ router.get('/channel_info_update_new', async (req, res) => {
                     none_list.push(bilibili_uid)
                 }
             })
-            console.log(none_list)
             res.send(none_list)
         })
     })
@@ -193,7 +194,7 @@ router.post('/add_channel', async (req, res) => {
     for (let NewChannel of data) {
         let channel_count = await db.collection('channel').countDocuments({bilibili_uid: NewChannel.bilibili_uid});
         if (channel_count === 0) {
-            db.collection('channel').insertOne({
+            await db.collection('channel').insertOne({
                 name: NewChannel.name,
                 bilibili_uid: NewChannel.bilibili_uid,
                 bilibili_live_room: NewChannel.bilibili_live_room,

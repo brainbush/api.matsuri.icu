@@ -20,9 +20,20 @@ function time_compare(a, b) {
     return 0;
 }
 
+function check_origin(origin) {
+    if (!origin) return false
+    return origin.substring('matsuri.icu') !== -1;
+}
+
 router.get('/:mid', async (req, res) => {
     let status = 0;
     let mid = parseInt(req.params.mid);
+    let origin = req.header('origin');
+    if (!check_origin(origin)) {
+        res.status(403)
+        res.send({status: 1, message: '别看了别看了，真的别看了'})
+        return
+    }
     let comments;
     let final_list = null;
     try {
