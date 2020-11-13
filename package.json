@@ -6,6 +6,8 @@
     "start": "node ./bin/www"
   },
   "dependencies": {
+    "@sentry/node": "^5.27.3",
+    "@sentry/tracing": "^5.27.3",
     "async-redis": "^1.1.7",
     "cors": "^2.8.5",
     "debug": "~2.6.9",
