@@ -75,13 +75,16 @@ router.get('/:mid', async (req, res) => {
                     }
                 ]).toArray();
             for (const clip of comments) {
-                let k = {};
-                clip.name = clip.channel_info.name;
-                delete clip.channel_info
-                k.full_comments = clip.full_comments;
-                delete clip.full_comments
-                k.clip_info = clip
-                final_list.push(k)
+                try {
+                    let k = {};
+                    clip.name = clip.channel_info.name;
+                    delete clip.channel_info
+                    k.full_comments = clip.full_comments;
+                    delete clip.full_comments
+                    k.clip_info = clip
+                    final_list.push(k)
+                } catch (e) {
+                }
             }
             final_list.sort(start_time_compare)
             if (final_list.length > 0) {

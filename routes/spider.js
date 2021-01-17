@@ -203,7 +203,8 @@ router.post('/add_channel', async (req, res) => {
                 last_danmu: 0,
                 total_clips: 0,
                 total_danmu: 0,
-                face: NewChannel.face
+                face: NewChannel.face,
+                hidden: false
             })
         } else {
             console.log(NewChannel.name + ' existed!');
