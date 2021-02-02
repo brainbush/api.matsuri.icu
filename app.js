@@ -1,7 +1,7 @@
 const express = require('express');
 const logger = require('morgan');
-const MongoClient = require('mongodb').MongoClient;
-const redis = require('async-redis');
+
+const {Pool} = require('pg');
 
 const Sentry = require('@sentry/node');
 const Tracing = require('@sentry/tracing');
@@ -13,17 +13,9 @@ const spiderRouter = require('./routes/spider');
 const viewerRouter = require('./routes/viewer');
 const offCommentsRouter = require('./routes/off_comments');
 
-const mongo_url = 'mongodb://localhost:27017/';
-const mongo_options = {
-    useUnifiedTopology: true,
-    auto_reconnect: true,
-    poolSize: 20,
-    connectTimeoutMS: 60000,
-    serverSelectionTimeoutMS: 5000
-};
-const db_name = 'matsuri_icu';
-
 const app = express();
+
+const pg = new Pool()
 
 Sentry.init({
     dsn: process.env.SentryDSN,
@@ -37,15 +29,8 @@ Sentry.init({
 app.use(Sentry.Handlers.requestHandler());
 app.use(Sentry.Handlers.tracingHandler());
 app.use(Sentry.Handlers.errorHandler());
-
-MongoClient.connect(mongo_url, mongo_options, (err, client) => {
-        if (err) throw err;
-        console.log(`DB connected, Authorization is:${process.env.Authorization}, Sentry dsn: ${process.env.SentryDSN}`);
-        app.locals.db = client.db(db_name);
-    }
-).then(() => {
-});
-app.locals.redis_client = redis.createClient();
+app.locals.pg = pg;
+console.log(`Authorization is:${process.env.Authorization}, Sentry dsn: ${process.env.SentryDSN}`);
 
 // noinspection JSCheckFunctionSignatures
 app.use(logger("short"));

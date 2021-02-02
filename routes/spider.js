@@ -8,8 +8,15 @@ const hashids = new Hashids();
 
 router.all('*', cors());
 
+function sliceArray(arr, size) {
+    let arr2 = [];
+    for (let i = 0; i < arr.length; i = i + size) {
+        arr2.push(arr.slice(i, i + size));
+    }
+    return arr2;
+}
+
 router.post('/start_clip', async (req, res) => {
-    const db = req.app.locals.db;
     const Authorization = req.headers.authorization;
     if (process.env.Authorization !== Authorization) {
         res.status(403);
@@ -17,47 +24,32 @@ router.post('/start_clip', async (req, res) => {
         return
     }
     let data = req.body;
-    let channel_set, start_time, title, live, cover, bilibili_uid;
+    let start_time, title, cover, bilibili_uid;
     if (data.hasOwnProperty('bilibili_uid')) bilibili_uid = data.bilibili_uid;
     if (data.hasOwnProperty('start_time')) start_time = data.start_time;
     if (data.hasOwnProperty('title')) title = data.title;
-    if (data.hasOwnProperty('live')) live = data.live;
     if (data.hasOwnProperty('cover')) cover = data.cover;
-    if (live) {
-        channel_set = {last_live: data.start_time, is_live: true};
-    } else {
-        channel_set = {is_live: false};
-    }
     let id = hashids.encode(bilibili_uid, start_time);
-    await db.collection('channel').findOneAndUpdate({bilibili_uid: bilibili_uid},
-        {
-            $set: channel_set,
-            $inc: {total_clips: 1}
-        });
-    await db.collection('clip').insertOne({
-        id: id,
-        bilibili_uid: bilibili_uid,
-        start_time: start_time,
-        title: title,
-        live: live,
-        cover: cover
-    });
-    res.send({id: id});
-    let list = await db.collection('clip').find({bilibili_uid: bilibili_uid},
-        {
-            projection: {
-                _id: 0,
-                full_comments: 0,
-                highlights: 0
-            }
-        }
-    ).toArray();
-    list = list.reverse()
-    req.app.locals.redis_client.set('channel_' + bilibili_uid.toString(), JSON.stringify(list))
+    const db = await req.app.locals.pg.connect();
+    try {
+        await db.query('UPDATE channels SET last_live = to_timestamp($1), is_live = true, total_clips=total_clips+1 WHERE bilibili_uid = $2',
+            [start_time / 1000, bilibili_uid])
+        await db.query('INSERT INTO clip_info (id, bilibili_uid, title, start_time, cover) VALUES($1, $2, $3, to_timestamp($4), $5) RETURNING *',
+            [id, bilibili_uid, title, start_time / 1000, cover])
+    } catch {
+        res.setStatus(500)
+    } finally {
+        db.release()
+        res.send({id: id});
+    }
 });
 
 router.post('/end_clip', async (req, res) => {
-    const db = req.app.locals.db;
+    function expand(rowCount, startAt = 1) {
+        let index = startAt
+        return Array(rowCount).fill(0).map(v => `($${index++}, to_timestamp($${index++}), $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`).join(", ")
+    }
+
     const Authorization = req.headers.authorization;
     if (process.env.Authorization !== Authorization) {
         res.status(403);
@@ -72,8 +64,6 @@ router.post('/end_clip', async (req, res) => {
     if (data.hasOwnProperty('highlights')) highlights = data.highlights;
     if (data.hasOwnProperty('full_comments')) full_comments = data.full_comments;
     if (data.hasOwnProperty('views')) views = data.views;
-    let info = await db.collection('clip').findOne({id: id});
-    start_time = info.start_time;
     let total_gift = 0;
     let total_superchat = 0;
     let total_reward = 0;
@@ -89,49 +79,57 @@ router.post('/end_clip', async (req, res) => {
     }
     total_reward = Math.floor(total_reward * 1000) / 1000;
     total_gift = Math.floor(total_gift * 1000) / 1000;
-    if (total_danmu !== 0) {
-        danmu_density = Math.round(total_danmu / ((end_time - start_time) / 60000));
-    } else {
-        danmu_density = 0;
-    }
-
-
-    let clip_info = await db.collection('clip').findOneAndUpdate({id: id},
-        {
-            $set: {
-                end_time: end_time,
-                total_danmu: total_danmu,
-                highlights: highlights,
-                full_comments: full_comments,
-                total_gift: total_gift,
-                total_superchat: total_superchat,
-                total_reward: total_reward,
-                danmu_density: danmu_density,
-                views: views
-            }
-        });
-    let bilibili_uid = clip_info.value.bilibili_uid;
-    await db.collection('channel').findOneAndUpdate({bilibili_uid: bilibili_uid},
-        {
-            $set: {is_live: false, last_danmu: total_danmu},
-            $inc: {total_danmu: total_danmu}
-        });
-    res.send({status: 0});
-    let list = await db.collection('clip').find({bilibili_uid: bilibili_uid},
-        {
-            projection: {
-                _id: 0,
-                full_comments: 0,
-                highlights: 0
+    const db = await req.app.locals.pg.connect();
+    try {
+        let info = await db.query('SELECT start_time, bilibili_uid FROM clip_info WHERE id=$1', [id])
+        start_time = info.rows[0].start_time;
+        if (total_danmu !== 0) {
+            danmu_density = Math.round(total_danmu / ((end_time - start_time) / 60000));
+        } else {
+            danmu_density = 0;
+        }
+        let clip_info = await db.query('UPDATE clip_info SET end_time = to_timestamp($1), total_danmu = $2, highlights = $3, total_gift = $4, total_superchat = $5, total_reward = $6, danmu_density = $7, viewers = $8 WHERE id = $9 RETURNING bilibili_uid',
+            [end_time / 1000, total_danmu, JSON.stringify(highlights), total_gift, total_superchat, total_reward, danmu_density, views, id])
+        if (full_comments) {
+            if (full_comments.length > 0) {
+                let full_comments_sliced = sliceArray(full_comments, 5000)
+                let liver_uid = info.rows[0].bilibili_uid
+                for (let comments of full_comments_sliced) {
+                    let processed_array = []
+                    for (let comment of comments) {
+                        let text
+                        if (comment.hasOwnProperty('text')) {
+                            text = await comment.text.replace(/\0/g, '')
+                        } else {
+                            text = null
+                        }
+                        await processed_array.push(
+                            id,
+                            comment.time / 1000 || null,
+                            comment.username || null,
+                            comment.user_id || null,
+                            comment.superchat_price || null,
+                            comment.gift_name || null,
+                            comment.gift_price || null,
+                            comment.gift_num || null,
+                            text,
+                            liver_uid)
+                    }
+                    await db.query(`INSERT INTO comments (clip_id, "time", username, user_id, superchat_price, gift_name, gift_price, gift_num, "text", liver_uid) VALUES ${expand(comments.length)}`, processed_array)
+                }
             }
         }
-    ).toArray();
-    list = list.reverse()
-    req.app.locals.redis_client.set('channel_' + bilibili_uid.toString(), JSON.stringify(list))
+        let bilibili_uid = clip_info.rows[0].bilibili_uid;
+        await db.query('UPDATE channels SET is_live = false, last_danmu = $1, total_danmu = total_danmu + $2 WHERE bilibili_uid = $3', [total_danmu, total_danmu, bilibili_uid])
+    } catch {
+        res.sendStatus(500)
+    } finally {
+        db.release()
+        res.send({status: 0});
+    }
 });
 
 router.post('/channel_info_update', async (req, res) => {
-    const db = req.app.locals.db;
     const Authorization = req.headers.authorization;
     if (process.env.Authorization !== Authorization) {
         res.status(403);
@@ -139,13 +137,20 @@ router.post('/channel_info_update', async (req, res) => {
         return;
     }
     let data = req.body.data;
-    data.forEach(channel => {
-        db.collection('channel').findOneAndUpdate({bilibili_uid: channel.bilibili_uid},
-            {$set: {name: channel.name, face: channel.face, bilibili_live_room: channel.bilibili_live_room}})
-    });
-    res.send({status: 0})
+    const db = await req.app.locals.pg.connect();
+    try {
+        data.forEach(channel => {
+            db.query('UPDATE channels SET name = $1, face = $2, bilibili_live_room = $3', [channel.name, channel.face, channel.bilibili_live_room])
+            .catch(e => console.error(e))
+        });
+    } catch {
+        res.setStatus(500)
+    } finally {
+        db.release()
+        res.send({status: 0})
+    }
 });
-let obj;
+
 router.get('/channel_info_update_new', async (req, res) => {
     const Authorization = req.headers.authorization;
     if (process.env.Authorization !== Authorization) {
@@ -153,7 +158,6 @@ router.get('/channel_info_update_new', async (req, res) => {
         res.send({status: 1});
         return;
     }
-    const db = req.app.locals.db;
     let none_list = []
     await https.get('https://api.vtbs.moe/v1/info', response => {
         let output = '';
@@ -161,29 +165,34 @@ router.get('/channel_info_update_new', async (req, res) => {
             output += chunk;
         })
         response.on('end', async () => {
-            obj = JSON.parse(output);
-            await db.collection('channel').find().forEach(channel => {
-                let bilibili_uid = channel.bilibili_uid;
-                let new_info = obj.filter(x => x.mid === bilibili_uid)[0]
-                if (new_info) {
-                    let uname = new_info.uname
-                    let roomid = new_info.roomid
-                    let face = new_info.face;
-                    face = face.replace('http', 'https')
-                    db.collection('channel').findOneAndUpdate({bilibili_uid: bilibili_uid},
-                        {$set: {name: uname, face: face, bilibili_live_room: roomid}})
-                } else {
-                    //console.log('no such info in this obj:' + bilibili_uid.toString())
-                    none_list.push(bilibili_uid)
+            let obj = JSON.parse(output);
+            const db = await req.app.locals.pg.connect();
+            try {
+                let channels = await db.query('SELECT bilibili_uid FROM channels')
+                channels = channels.rows;
+                for (let channel of channels) {
+                    let new_info = obj.filter(x => x.mid === bilibili_uid)[0]
+                    if (new_info) {
+                        let uname = new_info.uname
+                        let roomid = new_info.roomid
+                        let face = new_info.face;
+                        face = face.replace('http', 'https')
+                        await db.query('UPDATE channels SET name = $1, face = $2, bilibili_live_room = $3', [uname, face, roomid])
+                    } else {
+                        none_list.push(bilibili_uid)
+                    }
                 }
-            })
-            res.send(none_list)
+            } catch {
+                res.setStatus(500)
+            } finally {
+                db.release()
+                res.send(none_list)
+            }
         })
     })
 })
 
 router.post('/add_channel', async (req, res) => {
-    const db = req.app.locals.db;
     const Authorization = req.headers.authorization;
     if (process.env.Authorization !== Authorization) {
         res.status(403);
@@ -191,91 +200,78 @@ router.post('/add_channel', async (req, res) => {
         return;
     }
     let data = req.body.data;
-    for (let NewChannel of data) {
-        let channel_count = await db.collection('channel').countDocuments({bilibili_uid: NewChannel.bilibili_uid});
-        if (channel_count === 0) {
-            await db.collection('channel').insertOne({
-                name: NewChannel.name,
-                bilibili_uid: NewChannel.bilibili_uid,
-                bilibili_live_room: NewChannel.bilibili_live_room,
-                is_live: false,
-                last_live: null,
-                last_danmu: 0,
-                total_clips: 0,
-                total_danmu: 0,
-                face: NewChannel.face,
-                hidden: false
-            })
-        } else {
-            console.log(NewChannel.name + ' existed!');
+    const db = await req.app.locals.pg.connect();
+    try {
+        for (let NewChannel of data) {
+            let channel_count_info = await db.query('SELECT count(*) FROM channels WHERE bilibili_uid = $1', [NewChannel.bilibili_uid])
+            let channel_count = channel_count_info.rows[0].count
+            if (channel_count === '0') {
+                await db.query('INSERT INTO channels (name, bilibili_uid, bilibili_live_room, is_live, last_danmu, total_clips, total_danmu, face, hidden, last_live) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10 ) RETURNING *',
+                    [NewChannel.name, NewChannel.bilibili_uid, NewChannel.bilibili_live_room || null, false, 0, 0, 0, NewChannel.face || null, false, null])
+            } else {
+                console.log(NewChannel.name + ' existed!');
+            }
         }
+    } catch {
+        res.setStatus(500)
+    } finally {
+        db.release()
+        res.send({status: 0})
     }
-    res.send({status: 0})
 });
 
 router.post('/upload_offline_comments', async (req, res) => {
+    function expand(rowCount, startAt = 1) {
+        let index = startAt
+        return Array(rowCount).fill(0).map(v => `(to_timestamp($${index++}), $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`).join(", ")
+    }
+
     let status = 0;
+    const Authorization = req.headers.authorization;
+    if (process.env.Authorization !== Authorization) {
+        res.status(403);
+        res.send({status: 1});
+        return;
+    }
+    let room_id = undefined;
+    let full_comments = [];
+    let data = req.body;
+    if (data.hasOwnProperty('room_id')) room_id = data.room_id;
+    if (data.hasOwnProperty('comments')) full_comments = data.comments;
+    const db = await req.app.locals.pg.connect();
     try {
-        const db = req.app.locals.db;
-        const Authorization = req.headers.authorization;
-        if (process.env.Authorization !== Authorization) {
-            res.status(403);
-            res.send({status: 1});
-            return;
-        }
-        let room_id = undefined;
-        let comments = [];
-        let data = req.body;
-        if (data.hasOwnProperty('room_id')) room_id = data.room_id;
-        if (data.hasOwnProperty('comments')) comments = data.comments;
-        let channel_info = await db.collection('channel').findOne({bilibili_live_room: room_id});
-        let uid = channel_info.bilibili_uid;
-        let comments_by_date = {};
-        //按日期区分
-        comments.forEach(comment => {
-            let date = formatDate(comment.time);
-            if (!comments_by_date.hasOwnProperty(date))
-                comments_by_date[date] = [];
-            comments_by_date[date].push(comment);
-        });
-        for (let comment_date in comments_by_date) {
-            let name = uid.toString() + '_' + comment_date;
-            let comment_in_that_date = await db.collection('off_comments').countDocuments({name: name});
-            if (comment_in_that_date === 0) {
-                //如果不存在，则直接添加
-                await db.collection('off_comments').insertOne({name: name, comments: comments_by_date[comment_date]})
-            } else {
-                //否则插入到后面
-                await db.collection('off_comments').updateOne({name: name}, {
-                    $push: {
-                        comments: {$each: comments_by_date[comment_date]}
-                    }
-                })
+        let comments_sliced = sliceArray(full_comments, 1000)
+        let r = await db.query('SELECT bilibili_uid FROM channels WHERE bilibili_live_room = $1', [room_id])
+        let liver_uid = r.rows[0].bilibili_uid
+        for (let comments of comments_sliced) {
+            let processed_array = []
+            for (let comment of comments) {
+                let text
+                if (comment.hasOwnProperty('text')) {
+                    text = await comment.text.replace(/\0/g, '')
+                } else {
+                    text = null
+                }
+                await processed_array.push(
+                    comment.time / 1000 || null,
+                    comment.username || null,
+                    comment.user_id || null,
+                    comment.superchat_price || null,
+                    comment.gift_name || null,
+                    comment.gift_price || null,
+                    comment.gift_num || null,
+                    text,
+                    liver_uid)
             }
+            await db.query(`INSERT INTO off_comments ("time", username, user_id, superchat_price, gift_name, gift_price, gift_num, "text", liver_uid) VALUES ${expand(comments.length)}`, processed_array)
         }
     } catch (e) {
-        console.error(e);
-        res.status(500);
-        status = 1;
-        res.send({status: status});
+        console.error(e)
+        res.setStatus(500)
     } finally {
-        if (status === 0) {
-            res.send({status: 0})
-        }
+        db.release()
+        res.send({status: status})
     }
 });
-
-function formatDate(date) {
-    let d = new Date(date),
-        month = '' + (d.getMonth() + 1),
-        day = '' + d.getDate(),
-        year = d.getFullYear();
-
-    if (month.length < 2)
-        month = '0' + month;
-    if (day.length < 2)
-        day = '0' + day;
-    return year + month + day
-}
 
 module.exports = router;

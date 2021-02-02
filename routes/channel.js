@@ -8,12 +8,14 @@ router.all('*', cors());
 //所有频道列表
 router.get('/', async (req, res) => {
     let status = 0;
-    let channels = null;
+    let channels = [];
+    const db = await req.app.locals.pg.connect();
     try {
-        const db = req.app.locals.db;
-        channels = await db.collection('channel').find({}, {projection: {_id: 0}}).toArray();
+        let data = await db.query('SELECT name, bilibili_uid, bilibili_live_room, is_live, last_danmu, total_clips, total_danmu, face, hidden, EXTRACT(EPOCH FROM last_live)*1000 AS last_live from channels')
+        channels = data.rows
     } finally {
-        res.send({status: status, data: channels});
+        db.release()
+        res.send({status: status, data: channels})
     }
 });
 
@@ -22,10 +24,12 @@ router.get('/:mid', async (req, res) => {
     let status = 0;
     let mid = parseInt(req.params.mid);
     let channel = {};
+    const db = await req.app.locals.pg.connect();
     try {
-        const db = req.app.locals.db;
-        channel = await db.collection('channel').findOne({bilibili_uid: mid}, {projection: {_id: 0}})
+        let data = await db.query('SELECT name, bilibili_uid, bilibili_live_room, is_live, last_danmu, total_clips, total_danmu, face, hidden, EXTRACT(EPOCH FROM last_live)*1000 AS last_live from channels WHERE bilibili_uid= $1', [mid])
+        if (data.rows.length >= 1) channel = data.rows[0];
     } finally {
+        db.release()
         res.send({status: status, data: channel});
     }
 });
@@ -34,28 +38,13 @@ router.get('/:mid', async (req, res) => {
 router.get('/:mid/clips', async (req, res) => {
     let status = 0;
     let mid = parseInt(req.params.mid);
-    let list = null;
+    let list = [];
+    const db = await req.app.locals.pg.connect();
     try {
-        const redis_client = req.app.locals.redis_client;
-        let r = await redis_client.get('channel_' + mid);
-        if (r) list = JSON.parse(r);
-        if (list === null) {
-            const db = req.app.locals.db;
-            list = await db.collection('clip').find({bilibili_uid: mid},
-                {
-                    projection: {
-                        _id: 0,
-                        full_comments: 0,
-                        highlights: 0
-                    }
-                }
-            ).toArray();
-            list = list.reverse()
-            if (list.length > 0) {
-                redis_client.set('channel_' + mid.toString(), JSON.stringify(list))
-            }
-        }
+        let data = await db.query('SELECT id, bilibili_uid, title, EXTRACT(EPOCH FROM start_time)*1000 AS start_time, EXTRACT(EPOCH FROM end_time)*1000 AS end_time, cover, danmu_density, total_danmu, total_gift, total_superchat, total_reward, viewers AS views FROM clip_info WHERE bilibili_uid= $1 ORDER BY start_time DESC', [mid])
+        list = data.rows;
     } finally {
+        db.release()
         res.send({status: status, data: list})
     }
 });
