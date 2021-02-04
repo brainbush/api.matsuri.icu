@@ -1,8 +1,6 @@
 const express = require('express');
 const logger = require('morgan');
 
-const {Pool} = require('pg');
-
 const Sentry = require('@sentry/node');
 const Tracing = require('@sentry/tracing');
 
@@ -14,8 +12,6 @@ const viewerRouter = require('./routes/viewer');
 const offCommentsRouter = require('./routes/off_comments');
 
 const app = express();
-
-const pg = new Pool()
 
 Sentry.init({
     dsn: process.env.SentryDSN,
@@ -29,7 +25,6 @@ Sentry.init({
 app.use(Sentry.Handlers.requestHandler());
 app.use(Sentry.Handlers.tracingHandler());
 app.use(Sentry.Handlers.errorHandler());
-app.locals.pg = pg;
 console.log(`Authorization is:${process.env.Authorization}, Sentry dsn: ${process.env.SentryDSN}`);
 
 // noinspection JSCheckFunctionSignatures

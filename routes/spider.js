@@ -7,6 +7,7 @@ const https = require('https');
 const hashids = new Hashids();
 
 router.all('*', cors());
+const db = require('../db');
 
 function sliceArray(arr, size) {
     let arr2 = [];
@@ -30,16 +31,14 @@ router.post('/start_clip', async (req, res) => {
     if (data.hasOwnProperty('title')) title = data.title;
     if (data.hasOwnProperty('cover')) cover = data.cover;
     let id = hashids.encode(bilibili_uid, start_time);
-    const db = await req.app.locals.pg.connect();
     try {
         await db.query('UPDATE channels SET last_live = to_timestamp($1), is_live = true, total_clips=total_clips+1 WHERE bilibili_uid = $2',
             [start_time / 1000, bilibili_uid])
         await db.query('INSERT INTO clip_info (id, bilibili_uid, title, start_time, cover) VALUES($1, $2, $3, to_timestamp($4), $5) RETURNING *',
             [id, bilibili_uid, title, start_time / 1000, cover])
     } catch {
-        res.setStatus(500)
+        res.status(500)
     } finally {
-        db.release()
         res.send({id: id});
     }
 });
@@ -47,7 +46,7 @@ router.post('/start_clip', async (req, res) => {
 router.post('/end_clip', async (req, res) => {
     function expand(rowCount, startAt = 1) {
         let index = startAt
-        return Array(rowCount).fill(0).map(v => `($${index++}, to_timestamp($${index++}), $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`).join(", ")
+        return Array(rowCount).fill(0).map(() => `($${index++}, to_timestamp($${index++}), $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`).join(", ")
     }
 
     const Authorization = req.headers.authorization;
@@ -79,7 +78,6 @@ router.post('/end_clip', async (req, res) => {
     }
     total_reward = Math.floor(total_reward * 1000) / 1000;
     total_gift = Math.floor(total_gift * 1000) / 1000;
-    const db = await req.app.locals.pg.connect();
     try {
         let info = await db.query('SELECT start_time, bilibili_uid FROM clip_info WHERE id=$1', [id])
         start_time = info.rows[0].start_time;
@@ -124,7 +122,6 @@ router.post('/end_clip', async (req, res) => {
     } catch {
         res.sendStatus(500)
     } finally {
-        db.release()
         res.send({status: 0});
     }
 });
@@ -137,16 +134,14 @@ router.post('/channel_info_update', async (req, res) => {
         return;
     }
     let data = req.body.data;
-    const db = await req.app.locals.pg.connect();
     try {
         data.forEach(channel => {
-            db.query('UPDATE channels SET name = $1, face = $2, bilibili_live_room = $3', [channel.name, channel.face, channel.bilibili_live_room])
+            db.query('UPDATE channels SET name = $1, face = $2, bilibili_live_room = $3 WHERE bilibili_uid = $4', [channel.name, channel.face, channel.bilibili_live_room, channel.bilibili_uid])
             .catch(e => console.error(e))
         });
     } catch {
-        res.setStatus(500)
+        res.status(500)
     } finally {
-        db.release()
         res.send({status: 0})
     }
 });
@@ -166,26 +161,29 @@ router.get('/channel_info_update_new', async (req, res) => {
         })
         response.on('end', async () => {
             let obj = JSON.parse(output);
-            const db = await req.app.locals.pg.connect();
             try {
                 let channels = await db.query('SELECT bilibili_uid FROM channels')
                 channels = channels.rows;
+                console.log(channels)
                 for (let channel of channels) {
+                    let bilibili_uid = parseInt(channel.bilibili_uid)
+                    console.log(bilibili_uid)
                     let new_info = obj.filter(x => x.mid === bilibili_uid)[0]
+                    console.log(new_info)
                     if (new_info) {
                         let uname = new_info.uname
                         let roomid = new_info.roomid
                         let face = new_info.face;
                         face = face.replace('http', 'https')
-                        await db.query('UPDATE channels SET name = $1, face = $2, bilibili_live_room = $3', [uname, face, roomid])
+                        await db.query('UPDATE channels SET name = $1, face = $2, bilibili_live_room = $3 WHERE bilibili_uid = $4', [uname, face, roomid, bilibili_uid])
                     } else {
                         none_list.push(bilibili_uid)
                     }
                 }
-            } catch {
-                res.setStatus(500)
+            } catch (e) {
+                res.status(500)
+                throw e
             } finally {
-                db.release()
                 res.send(none_list)
             }
         })
@@ -200,7 +198,6 @@ router.post('/add_channel', async (req, res) => {
         return;
     }
     let data = req.body.data;
-    const db = await req.app.locals.pg.connect();
     try {
         for (let NewChannel of data) {
             let channel_count_info = await db.query('SELECT count(*) FROM channels WHERE bilibili_uid = $1', [NewChannel.bilibili_uid])
@@ -213,9 +210,8 @@ router.post('/add_channel', async (req, res) => {
             }
         }
     } catch {
-        res.setStatus(500)
+        res.status(500)
     } finally {
-        db.release()
         res.send({status: 0})
     }
 });
@@ -223,7 +219,7 @@ router.post('/add_channel', async (req, res) => {
 router.post('/upload_offline_comments', async (req, res) => {
     function expand(rowCount, startAt = 1) {
         let index = startAt
-        return Array(rowCount).fill(0).map(v => `(to_timestamp($${index++}), $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`).join(", ")
+        return Array(rowCount).fill(0).map(() => `(to_timestamp($${index++}), $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`).join(", ")
     }
 
     let status = 0;
@@ -238,7 +234,6 @@ router.post('/upload_offline_comments', async (req, res) => {
     let data = req.body;
     if (data.hasOwnProperty('room_id')) room_id = data.room_id;
     if (data.hasOwnProperty('comments')) full_comments = data.comments;
-    const db = await req.app.locals.pg.connect();
     try {
         let comments_sliced = sliceArray(full_comments, 1000)
         let r = await db.query('SELECT bilibili_uid FROM channels WHERE bilibili_live_room = $1', [room_id])
@@ -267,9 +262,8 @@ router.post('/upload_offline_comments', async (req, res) => {
         }
     } catch (e) {
         console.error(e)
-        res.setStatus(500)
+        res.status(500)
     } finally {
-        db.release()
         res.send({status: status})
     }
 });
