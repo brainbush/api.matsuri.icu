@@ -3,6 +3,7 @@ const router = express.Router();
 const cors = require('cors');
 
 router.all('*', cors());
+const db = require('../db');
 
 function start_time_compare(a, b) {
     if (a.clip_info.start_time < b.clip_info.start_time)
@@ -34,7 +35,10 @@ router.get('/:mid', async (req, res) => {
             let clip_info_query = await db.query('SELECT id, bilibili_uid, start_time, title, cover, danmu_density, end_time, total_danmu, total_gift, total_reward, total_superchat, viewers AS views FROM clip_info WHERE id = $1', [clip_id]);
             let clip_info = clip_info_query.rows[0];
             let channel_query = await db.query('SELECT name FROM channels WHERE bilibili_uid = $1', [clip_info.bilibili_uid]);
-            clip_info.name = channel_query.rows[0].name;
+            if (channel_query.rows.length > 0)
+                clip_info.name = channel_query.rows[0].name;
+            else
+                clip_info.name = '你谁啊';
             let r = await db.query('SELECT EXTRACT(EPOCH FROM "time")*1000 as time, username, user_id, superchat_price, gift_name, gift_price, gift_num, "text" FROM comments WHERE clip_id = $1 AND user_id = $2 ORDER BY "time"', [clip_id, mid])
             let full_comments = r.rows
             await full_comments.forEach(comment => Object.keys(comment).forEach((k) => comment[k] == null && delete comment[k]))
