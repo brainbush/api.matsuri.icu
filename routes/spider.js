@@ -79,7 +79,7 @@ router.post('/end_clip', async (req, res) => {
     total_reward = Math.floor(total_reward * 1000) / 1000;
     total_gift = Math.floor(total_gift * 1000) / 1000;
     try {
-        let info = await db.query('SELECT start_time, bilibili_uid FROM clip_info WHERE id=$1', [id])
+        let info = await db.query('SELECT EXTRACT(EPOCH FROM start_time)*1000 AS start_time, bilibili_uid FROM clip_info WHERE id=$1', [id])
         start_time = info.rows[0].start_time;
         if (total_danmu !== 0) {
             danmu_density = Math.round(total_danmu / ((end_time - start_time) / 60000));
@@ -202,7 +202,7 @@ router.post('/add_channel', async (req, res) => {
         for (let NewChannel of data) {
             let channel_count_info = await db.query('SELECT count(*) FROM channels WHERE bilibili_uid = $1', [NewChannel.bilibili_uid])
             let channel_count = channel_count_info.rows[0].count
-            if (channel_count === '0') {
+            if (channel_count === 0) {
                 await db.query('INSERT INTO channels (name, bilibili_uid, bilibili_live_room, is_live, last_danmu, total_clips, total_danmu, face, hidden, last_live) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10 ) RETURNING *',
                     [NewChannel.name, NewChannel.bilibili_uid, NewChannel.bilibili_live_room || null, false, 0, 0, 0, NewChannel.face || null, false, null])
             } else {
