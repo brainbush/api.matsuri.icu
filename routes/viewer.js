@@ -21,6 +21,7 @@ function check_origin(origin) {
 router.get('/:mid', async (req, res) => {
     let status = 0;
     let mid = parseInt(req.params.mid);
+    let page = parseInt(req.query.page) || 1;
     let origin = req.header('origin');
     if (!check_origin(origin)) {
         res.status(403)
@@ -29,7 +30,7 @@ router.get('/:mid', async (req, res) => {
     }
     let final_list = [];
     try {
-        let clips = await db.query('SELECT DISTINCT(clip_id) FROM comments WHERE user_id = $1', [mid])
+        let clips = await db.query('SELECT DISTINCT(clip_id),MAX(time) as time FROM comments WHERE user_id = $1 GROUP BY clip_id ORDER BY "time" DESC LIMIT 10 OFFSET $2', [mid, (page - 1) * 10])
         for (let clip of clips.rows) {
             let clip_id = clip.clip_id;
             let clip_info_query = await db.query('SELECT id, bilibili_uid, start_time, title, cover, danmu_density, end_time, total_danmu, total_gift, total_reward, total_superchat, viewers AS views FROM clip_info WHERE id = $1', [clip_id]);

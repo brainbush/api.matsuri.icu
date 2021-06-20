@@ -82,7 +82,8 @@ router.post('/end_clip', async (req, res) => {
         let info = await db.query('SELECT EXTRACT(EPOCH FROM start_time)*1000 AS start_time, bilibili_uid FROM clip_info WHERE id=$1', [id])
         start_time = info.rows[0].start_time;
         if (total_danmu !== 0) {
-            danmu_density = Math.round(total_danmu / ((end_time - start_time) / 60000));
+            let total_minutes = Math.ceil((end_time - start_time) / 60000)
+            danmu_density = Math.round(total_danmu / total_minutes);
         } else {
             danmu_density = 0;
         }
