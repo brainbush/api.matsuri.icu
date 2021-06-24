@@ -1,5 +1,6 @@
 const express = require('express');
 const logger = require('morgan');
+const redis = require('async-redis');
 
 const Sentry = require('@sentry/node');
 const Tracing = require('@sentry/tracing');
@@ -25,7 +26,9 @@ Sentry.init({
 app.use(Sentry.Handlers.requestHandler());
 app.use(Sentry.Handlers.tracingHandler());
 app.use(Sentry.Handlers.errorHandler());
-console.log(`Authorization is:${process.env.Authorization}, Sentry dsn: ${process.env.SentryDSN}`);
+console.log(`Authorization is:${process.env.Authorization}, Sentry dsn: ${process.env.SentryDSN}, recaptcha site key: ${process.env.recaptcha}`);
+
+app.locals.redis_client = redis.createClient();
 
 // noinspection JSCheckFunctionSignatures
 app.use(logger("short"));
