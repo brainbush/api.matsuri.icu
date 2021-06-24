@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const cors = require('cors');
-
+const recaptcha_site_key = process.env.recaptcha;
+const axios = require('axios');
 router.all('*', cors());
 const db = require('../db');
 
@@ -18,12 +19,36 @@ function check_origin(origin) {
     return origin.includes('matsuri.icu');
 }
 
+async function check_recaptcha(token, redis_client) {
+    try {
+        let r = await redis_client.get(`viewer_${token}`);
+        if (r) return true;
+        let {data} = await axios.get('https://www.recaptcha.net/recaptcha/api/siteverify',
+            {
+                params: {
+                    secret: recaptcha_site_key, response: token
+                }
+            });
+        if (data.success) {
+            await redis_client.set(`viewer_${token}`, "t");
+            await redis_client.expire(`viewer_${token}`, 1800);
+        }
+        return data.success;
+    } catch (error) {
+        console.error(error);
+        return false;
+    }
+}
+
 router.get('/:mid', async (req, res) => {
     let status = 0;
     let mid = parseInt(req.params.mid);
     let page = parseInt(req.query.page) || 1;
     let origin = req.header('origin');
-    if (!check_origin(origin)) {
+    const redis_client = req.app.locals.redis_client;
+    let recaptcha_succeed = await check_recaptcha(req.header('token'), redis_client);
+    console.log(recaptcha_succeed)
+    if (!check_origin(origin) || !recaptcha_succeed) {
         res.status(403)
         res.send({status: 1, message: '别看了别看了，真的别看了'})
         return
