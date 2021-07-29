@@ -19,10 +19,10 @@ function check_origin(origin) {
     return origin.includes('matsuri.icu');
 }
 
-async function check_recaptcha(token, redis_client) {
+async function check_recaptcha(token, redis_client, mid) {
     try {
         let r = await redis_client.get(`viewer_${token}`);
-        if (r) return true;
+        if (parseInt(r) === mid) return true;
         let {data} = await axios.get('https://www.recaptcha.net/recaptcha/api/siteverify',
             {
                 params: {
@@ -30,8 +30,8 @@ async function check_recaptcha(token, redis_client) {
                 }
             });
         if (data.success) {
-            await redis_client.set(`viewer_${token}`, "t");
-            await redis_client.expire(`viewer_${token}`, 1800);
+            await redis_client.set(`viewer_${token}`, mid);
+            await redis_client.expire(`viewer_${token}`, 600);
         }
         return data.success;
     } catch (error) {
@@ -46,8 +46,7 @@ router.get('/:mid', async (req, res) => {
     let page = parseInt(req.query.page) || 1;
     let origin = req.header('origin');
     const redis_client = req.app.locals.redis_client;
-    let recaptcha_succeed = await check_recaptcha(req.header('token'), redis_client);
-    console.log(recaptcha_succeed)
+    let recaptcha_succeed = await check_recaptcha(req.header('token'), redis_client, mid);
     if (!check_origin(origin) || !recaptcha_succeed) {
         res.status(403)
         res.send({status: 1, message: '别看了别看了，真的别看了'})
@@ -58,7 +57,7 @@ router.get('/:mid', async (req, res) => {
         let clips = await db.query('SELECT DISTINCT(clip_id),MAX(time) as time FROM comments WHERE user_id = $1 GROUP BY clip_id ORDER BY "time" DESC LIMIT 10 OFFSET $2', [mid, (page - 1) * 10])
         for (let clip of clips.rows) {
             let clip_id = clip.clip_id;
-            let clip_info_query = await db.query('SELECT id, bilibili_uid, start_time, title, cover, danmu_density, end_time, total_danmu, total_gift, total_reward, total_superchat, viewers AS views FROM clip_info WHERE id = $1', [clip_id]);
+            let clip_info_query = await db.query('SELECT id, bilibili_uid, EXTRACT(EPOCH FROM start_time)*1000 AS start_time, title, cover, danmu_density, EXTRACT(EPOCH FROM end_time)*1000 AS end_time, total_danmu, total_gift, total_reward, total_superchat, viewers AS views FROM clip_info WHERE id = $1', [clip_id]);
             let clip_info = clip_info_query.rows[0];
             let channel_query = await db.query('SELECT name FROM channels WHERE bilibili_uid = $1', [clip_info.bilibili_uid]);
             if (channel_query.rows.length > 0)

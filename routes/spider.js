@@ -3,6 +3,7 @@ const router = express.Router();
 const cors = require('cors');
 const Hashids = require('hashids/cjs');
 const https = require('https');
+const axios = require('axios');
 
 const hashids = new Hashids();
 
@@ -56,28 +57,33 @@ router.post('/end_clip', async (req, res) => {
         return;
     }
     let data = req.body;
-    let id, end_time, total_danmu, highlights, full_comments, danmu_density, start_time, views = 0;
+    let id, end_time, highlights, full_comments, danmu_density, start_time, views = 0;
     if (data.hasOwnProperty('id')) id = data.id;
     if (data.hasOwnProperty('end_time')) end_time = data.end_time;
-    if (data.hasOwnProperty('total_danmu')) total_danmu = data.total_danmu;
     if (data.hasOwnProperty('highlights')) highlights = data.highlights;
     if (data.hasOwnProperty('full_comments')) full_comments = data.full_comments;
     if (data.hasOwnProperty('views')) views = data.views;
     let total_gift = 0;
     let total_superchat = 0;
     let total_reward = 0;
+    let total_danmu = 0;
     for (let comment of full_comments) {
         if (comment.hasOwnProperty('gift_price')) {
-            total_gift += comment.gift_price;
-            total_reward += comment.gift_price
+            let p = parseInt(comment.gift_price * 1000)
+            total_gift += p;
+            total_reward += p
         }
         if (comment.hasOwnProperty('superchat_price')) {
-            total_superchat += comment.superchat_price;
-            total_reward += comment.superchat_price
+            let p = comment.superchat_price
+            total_superchat += p;
+            total_reward += p*1000;
+        }
+        if (comment.hasOwnProperty('text')) {
+            total_danmu += 1;
         }
     }
-    total_reward = Math.floor(total_reward * 1000) / 1000;
-    total_gift = Math.floor(total_gift * 1000) / 1000;
+    total_reward = total_reward / 1000;
+    total_gift = total_gift / 1000;
     try {
         let info = await db.query('SELECT EXTRACT(EPOCH FROM start_time)*1000 AS start_time, bilibili_uid FROM clip_info WHERE id=$1', [id])
         start_time = info.rows[0].start_time;
@@ -87,8 +93,6 @@ router.post('/end_clip', async (req, res) => {
         } else {
             danmu_density = 0;
         }
-        let clip_info = await db.query('UPDATE clip_info SET end_time = to_timestamp($1), total_danmu = $2, highlights = $3, total_gift = $4, total_superchat = $5, total_reward = $6, danmu_density = $7, viewers = $8 WHERE id = $9 RETURNING bilibili_uid',
-            [end_time / 1000, total_danmu, JSON.stringify(highlights), total_gift, total_superchat, total_reward, danmu_density, views, id])
         if (full_comments) {
             if (full_comments.length > 0) {
                 let full_comments_sliced = sliceArray(full_comments, 5000)
@@ -118,12 +122,16 @@ router.post('/end_clip', async (req, res) => {
                 }
             }
         }
+        let clip_info = await db.query('UPDATE clip_info SET end_time = to_timestamp($1), total_danmu = $2, highlights = $3, total_gift = $4, total_superchat = $5, total_reward = $6, danmu_density = $7, viewers = $8 WHERE id = $9 RETURNING bilibili_uid',
+            [end_time / 1000, total_danmu, JSON.stringify(highlights), total_gift, total_superchat, total_reward, danmu_density, views, id])
         let bilibili_uid = clip_info.rows[0].bilibili_uid;
         await db.query('UPDATE channels SET is_live = false, last_danmu = $1, total_danmu = total_danmu + $2 WHERE bilibili_uid = $3', [total_danmu, total_danmu, bilibili_uid])
     } catch {
         res.sendStatus(500)
     } finally {
         res.send({status: 0});
+        res.end();
+        await axios.get(`http://localhost:33222/parse/${id}`)
     }
 });
 
@@ -268,5 +276,27 @@ router.post('/upload_offline_comments', async (req, res) => {
         res.send({status: status})
     }
 });
+
+router.post('/upload_highlights', async (req, res) => {
+    let status = 0;
+    const Authorization = req.headers.authorization;
+    if (process.env.Authorization !== Authorization) {
+        res.status(403);
+        res.send({status: 1});
+        return;
+    }
+    let clip_id, highlights;
+    let data = req.body;
+    clip_id = data.clip_id;
+    highlights = data.highlights;
+    try {
+        await db.query('UPDATE clip_info SET highlights = $1 WHERE id = $2', [JSON.stringify(highlights), clip_id])
+    } catch (e) {
+        console.error(e)
+        res.status(500)
+    } finally {
+        res.send({status: status})
+    }
+})
 
 module.exports = router;
