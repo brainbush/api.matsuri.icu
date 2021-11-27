@@ -31,6 +31,7 @@ router.get('/:id/comments', async (req, res) => {
         full_comments = r.rows
         await full_comments.forEach(comment => Object.keys(comment).forEach((k) => comment[k] == null && delete comment[k]))
     } finally {
+        if (full_comments.length > 0) res.set('Cache-Control', 'max-age=31536000')
         res.send({status: status, data: full_comments})
     }
 });

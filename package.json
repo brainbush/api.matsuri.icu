@@ -6,15 +6,17 @@
     "start": "node ./bin/www"
   },
   "dependencies": {
-    "@sentry/node": "^5.30.0",
-    "@sentry/tracing": "^5.30.0",
-    "async-redis": "^2.0.0",
+    "@sentry/node": "^5.27.3",
+    "@sentry/tracing": "^5.27.3",
+    "async-redis": "^1.1.7",
     "axios": "^0.21.1",
     "cors": "^2.8.5",
     "debug": "~2.6.9",
     "express": "~4.16.1",
-    "hashids": "^2.2.8",
+    "hashids": "^2.1.0",
+    "mongodb": "^3.5.2",
     "morgan": "~1.9.1",
-    "pg": "^8.6.0"
+    "pg": "^8.5.1",
+    "redis": "^3.0.2"
   }
 }
