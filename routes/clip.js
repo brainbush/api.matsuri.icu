@@ -27,9 +27,11 @@ router.get('/:id/comments', async (req, res) => {
     let id = req.params.id;
     let full_comments;
     try {
-        let r = await db.query('SELECT EXTRACT(EPOCH FROM "time")*1000 as time, username, user_id, superchat_price, gift_name, gift_price, gift_num, "text" FROM comments WHERE clip_id = $1 ORDER BY "time"', [id])
+        let r = await db.query('SELECT EXTRACT(EPOCH FROM "time")*1000 as time, username, user_id, superchat_price, gift_name, gift_price, gift_num, "text" FROM all_comments WHERE clip_id = $1 ORDER BY "time"', [id])
         full_comments = r.rows
         await full_comments.forEach(comment => Object.keys(comment).forEach((k) => comment[k] == null && delete comment[k]))
+    } catch (e) {
+       console.log(e);
     } finally {
         if (full_comments.length > 0) res.set('Cache-Control', 'max-age=31536000')
         res.send({status: status, data: full_comments})

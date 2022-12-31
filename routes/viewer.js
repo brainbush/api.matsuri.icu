@@ -22,7 +22,10 @@ function check_origin(origin) {
 async function check_recaptcha(token, redis_client, mid) {
     try {
         let r = await redis_client.get(`viewer_${token}`);
-        if (parseInt(r) === mid) return true;
+        if (parseInt(r) === mid) {
+            await redis_client.expire(`viewer_${token}`, 600);
+            return true;
+        }
         let {data} = await axios.get('https://www.recaptcha.net/recaptcha/api/siteverify',
             {
                 params: {

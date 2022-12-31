@@ -10,7 +10,7 @@ router.get('/', async (req, res) => {
     let status = 0;
     let channels = [];
     try {
-        let data = await db.query('SELECT name, bilibili_uid, bilibili_live_room, is_live, last_danmu, total_clips, total_danmu, face, hidden, EXTRACT(EPOCH FROM last_live)*1000 AS last_live from channels')
+        let data = await db.query('SELECT name, bilibili_uid, bilibili_live_room, is_live, last_danmu, total_clips, total_danmu, face, hidden, archive, EXTRACT(EPOCH FROM last_live)*1000 AS last_live from channels')
         channels = data.rows
     } finally {
         res.send({status: status, data: channels})

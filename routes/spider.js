@@ -118,7 +118,7 @@ router.post('/end_clip', async (req, res) => {
                             text,
                             liver_uid)
                     }
-                    await db.query(`INSERT INTO comments (clip_id, "time", username, user_id, superchat_price, gift_name, gift_price, gift_num, "text", liver_uid) VALUES ${expand(comments.length)}`, processed_array)
+                    await db.query(`INSERT INTO comments_new (clip_id, "time", username, user_id, superchat_price, gift_name, gift_price, gift_num, "text", liver_uid) VALUES ${expand(comments.length)}`, processed_array)
                 }
             }
         }
@@ -163,7 +163,7 @@ router.get('/channel_info_update_new', async (req, res) => {
         return;
     }
     let none_list = []
-    await https.get('https://api.vtbs.moe/v1/info', response => {
+    await https.get('https://api.vtbs.moe/v1/fullInfo', response => {
         let output = '';
         response.on('data', (chunk) => {
             output += chunk;
