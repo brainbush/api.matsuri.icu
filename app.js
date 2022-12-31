@@ -29,7 +29,9 @@ app.use(Sentry.Handlers.tracingHandler());
 app.use(Sentry.Handlers.errorHandler());
 console.log(`Authorization is:${process.env.Authorization}, Sentry dsn: ${process.env.SentryDSN}, recaptcha site key: ${process.env.recaptcha}`);
 
-app.locals.redis_client = redis.createClient();
+app.locals.redis_client = redis.createClient({
+    url: process.env.REDIS_URL
+});
 
 // noinspection JSCheckFunctionSignatures
 app.use(logger("short"));
